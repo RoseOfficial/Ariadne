@@ -4,7 +4,6 @@ using Dalamud.Plugin.Services;
 using System;
 using System.Collections.Generic;
 using System.Numerics;
-using System.Threading.Tasks;
 
 namespace Ariadne.Navigation;
 
@@ -33,7 +32,6 @@ public class DungeonNavigator : IDisposable
 
     private DungeonRoute? _currentRoute;
     private int _currentWaypointIndex;
-    private Task<bool>? _currentMoveTask;
     private DateTime _lastPositionCheck;
     private Vector3 _lastPosition;
     private float _stuckTime;
@@ -105,7 +103,6 @@ public class DungeonNavigator : IDisposable
     {
         _navmesh.Stop();
         _currentRoute = null;
-        _currentMoveTask = null;
         _currentWaypointIndex = 0;
         State = NavigatorState.Idle;
         StatusMessage = "Stopped";
@@ -133,9 +130,6 @@ public class DungeonNavigator : IDisposable
             case NavigatorState.WaitingForNavmesh:
                 UpdateWaitingForNavmesh();
                 break;
-            case NavigatorState.Pathfinding:
-                UpdatePathfinding();
-                break;
             case NavigatorState.Moving:
                 UpdateMoving(framework);
                 break;
@@ -159,38 +153,6 @@ public class DungeonNavigator : IDisposable
         {
             var progress = _navmesh.BuildProgress;
             StatusMessage = $"Building navmesh: {progress:P0}";
-        }
-    }
-
-    private void UpdatePathfinding()
-    {
-        if (_currentMoveTask == null)
-        {
-            State = NavigatorState.Error;
-            StatusMessage = "Pathfinding task was null";
-            return;
-        }
-
-        if (_currentMoveTask.IsCompleted)
-        {
-            if (_currentMoveTask.IsFaulted)
-            {
-                State = NavigatorState.Error;
-                StatusMessage = $"Pathfinding failed: {_currentMoveTask.Exception?.Message}";
-                Services.Log.Error(_currentMoveTask.Exception, "Pathfinding failed");
-                return;
-            }
-
-            if (_currentMoveTask.Result)
-            {
-                State = NavigatorState.Moving;
-                StatusMessage = $"Moving to waypoint {_currentWaypointIndex + 1}/{TotalWaypoints}";
-            }
-            else
-            {
-                State = NavigatorState.Error;
-                StatusMessage = "Pathfinding returned false";
-            }
         }
     }
 
@@ -313,13 +275,24 @@ public class DungeonNavigator : IDisposable
             return;
         }
 
-        State = NavigatorState.Pathfinding;
-        StatusMessage = $"Pathfinding to waypoint {_currentWaypointIndex + 1}/{TotalWaypoints}";
+        // Check if we're already at this waypoint
+        var playerPos = GetPlayerPosition();
+        if (waypoint.IsReached(playerPos))
+        {
+            Services.Log.Debug($"Already at waypoint {_currentWaypointIndex + 1}, advancing");
+            AdvanceToNextWaypoint();
+            return;
+        }
 
-        // Use vnavmesh's PathfindAndMoveTo for simplicity
-        _currentMoveTask = _navmesh.PathfindAndMoveTo(waypoint.Position, fly: false);
+        // Use vnavmesh's PathfindAndMoveTo - returns true if move started successfully
+        var started = _navmesh.PathfindAndMoveTo(waypoint.Position, fly: false);
 
-        if (_currentMoveTask == null)
+        if (started)
+        {
+            State = NavigatorState.Moving;
+            StatusMessage = $"Moving to waypoint {_currentWaypointIndex + 1}/{TotalWaypoints}";
+        }
+        else
         {
             State = NavigatorState.Error;
             StatusMessage = "Failed to start pathfinding - vnavmesh not ready?";

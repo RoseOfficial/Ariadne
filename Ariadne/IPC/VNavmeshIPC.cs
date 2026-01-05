@@ -26,7 +26,7 @@ public class VNavmeshIPC : IDisposable
     private readonly ICallGateSubscriber<List<Vector3>> _listWaypoints;
 
     // Simple move (pathfind + move in one call)
-    private readonly ICallGateSubscriber<Vector3, bool, Task<bool>> _pathfindAndMoveTo;
+    private readonly ICallGateSubscriber<Vector3, bool, bool> _pathfindAndMoveTo;
     private readonly ICallGateSubscriber<bool> _simpleMoveInProgress;
 
     public VNavmeshIPC()
@@ -47,7 +47,7 @@ public class VNavmeshIPC : IDisposable
         _listWaypoints = pi.GetIpcSubscriber<List<Vector3>>("vnavmesh.Path.ListWaypoints");
 
         // Simple move
-        _pathfindAndMoveTo = pi.GetIpcSubscriber<Vector3, bool, Task<bool>>("vnavmesh.SimpleMove.PathfindAndMoveTo");
+        _pathfindAndMoveTo = pi.GetIpcSubscriber<Vector3, bool, bool>("vnavmesh.SimpleMove.PathfindAndMoveTo");
         _simpleMoveInProgress = pi.GetIpcSubscriber<bool>("vnavmesh.SimpleMove.PathfindInProgress");
 
         Services.Log.Debug("VNavmeshIPC initialized");
@@ -61,7 +61,25 @@ public class VNavmeshIPC : IDisposable
     /// <summary>
     /// Check if vnavmesh has a navmesh loaded for the current zone.
     /// </summary>
-    public bool IsReady => TryInvoke(_isReady.InvokeFunc, false);
+    public bool IsReady
+    {
+        get
+        {
+            try
+            {
+                return _isReady.InvokeFunc();
+            }
+            catch (IpcNotReadyError)
+            {
+                return false;
+            }
+            catch (Exception ex)
+            {
+                Services.Log.Warning($"IsReady check failed: {ex.Message}");
+                return false;
+            }
+        }
+    }
 
     /// <summary>
     /// Get the navmesh build progress (0-1).
@@ -122,10 +140,26 @@ public class VNavmeshIPC : IDisposable
 
     /// <summary>
     /// Pathfind and move to a destination in one call.
+    /// Returns true if the move request was started successfully.
     /// </summary>
-    public Task<bool>? PathfindAndMoveTo(Vector3 destination, bool fly = false)
+    public bool PathfindAndMoveTo(Vector3 destination, bool fly = false)
     {
-        return TryInvoke(() => _pathfindAndMoveTo.InvokeFunc(destination, fly), null);
+        try
+        {
+            var result = _pathfindAndMoveTo.InvokeFunc(destination, fly);
+            Services.Log.Info($"PathfindAndMoveTo({destination}, {fly}) = {result}");
+            return result;
+        }
+        catch (IpcNotReadyError)
+        {
+            Services.Log.Warning("PathfindAndMoveTo failed: vnavmesh IPC not ready");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            Services.Log.Error($"PathfindAndMoveTo failed: {ex.Message}");
+            return false;
+        }
     }
 
     private T TryInvoke<T>(Func<T> func, T fallback)
