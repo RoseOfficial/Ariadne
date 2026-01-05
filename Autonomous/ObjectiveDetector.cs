@@ -96,12 +96,12 @@ public class ObjectiveDetector
                 return nearbyEnemies.Count == 0;
 
             case ObjectiveType.Explore:
-                // Exploration objectives complete when reached
-                return true;
+                // Exploration objectives only complete when reached (checked via IsObjectiveReached)
+                return false;
 
             case ObjectiveType.Exit:
-                // Exit is complete when we reach it
-                return true;
+                // Exit only complete when reached (checked via IsObjectiveReached)
+                return false;
 
             default:
                 return true;
