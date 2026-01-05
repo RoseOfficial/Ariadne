@@ -1,0 +1,49 @@
+# Build results
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.rsuser
+
+# NuGet
+packages/
+*.nupkg
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# Rider
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# AI Tools
+CLAUDE.md
+.claude/
+.cursor/
+.cursorrules
+.github/copilot-instructions.md
+.codeium/
+.tabnine/
+.sourcegraph/
+.continue/
+.aider*
+.cody/
+.supermaven/
+.windsurf/
+.codium/
+.amazonq/
+.aws/codewhisperer/
+.bolt/
+.v0/

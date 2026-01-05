@@ -1,0 +1,8 @@
+{
+  "Name": "Ariadne",
+  "Author": "neoga",
+  "Punchline": "Navigate the labyrinth",
+  "Description": "Automatic pathfinding and navigation for dungeons and the open world. Uses vnavmesh for pathfinding.",
+  "RepoUrl": "https://github.com/neoga/Ariadne",
+  "DalamudApiLevel": 14
+}
