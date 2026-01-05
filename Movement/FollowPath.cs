@@ -49,6 +49,7 @@ public class FollowPath : IDisposable
 
     private Vector3? _posPreviousFrame;
     private int _millisecondsWithNoSignificantMovement = 0;
+    private float _distanceToWaypointAtStuckStart = float.MaxValue;
     private bool _lastMovementEnabled;
 
     /// <summary>
@@ -130,24 +131,32 @@ public class FollowPath : IDisposable
         }
         else
         {
-            // Stuck detection
-            if (StopOnStuck && _posPreviousFrame.HasValue)
+            // Stuck detection - check progress toward waypoint, not just position change
+            // This handles wall collision jitter that would reset position-based detection
+            if (StopOnStuck)
             {
-                float distance = Vector3.Distance(player.Position, _posPreviousFrame.Value);
-                if (distance <= StuckTolerance)
+                var distToWaypoint = Vector3.Distance(player.Position, Waypoints[0]);
+
+                // If we've made significant progress toward waypoint, reset
+                if (distToWaypoint < _distanceToWaypointAtStuckStart - StuckTolerance)
                 {
-                    _millisecondsWithNoSignificantMovement += fwk.UpdateDelta.Milliseconds;
+                    _millisecondsWithNoSignificantMovement = 0;
+                    _distanceToWaypointAtStuckStart = distToWaypoint;
                 }
                 else
                 {
-                    _millisecondsWithNoSignificantMovement = 0;
+                    _millisecondsWithNoSignificantMovement += fwk.UpdateDelta.Milliseconds;
+
+                    // Update baseline if we're closer (even if not by much)
+                    if (distToWaypoint < _distanceToWaypointAtStuckStart)
+                        _distanceToWaypointAtStuckStart = distToWaypoint;
                 }
 
                 if (_millisecondsWithNoSignificantMovement >= StuckTimeoutMs)
                 {
                     var destination = Waypoints[^1];
                     var distToDest = Vector3.Distance(player.Position, destination);
-                    Services.Log.Warning($"[FollowPath] Stuck detected! No movement for {StuckTimeoutMs}ms, {distToDest:F1}m from destination");
+                    Services.Log.Warning($"[FollowPath] Stuck detected! No progress for {StuckTimeoutMs}ms, {distToDest:F1}m from destination");
                     Stop();
                     OnStuck?.Invoke(destination, !IgnoreDeltaY, DestinationTolerance);
                     return;
@@ -222,6 +231,7 @@ public class FollowPath : IDisposable
     public void Stop()
     {
         _millisecondsWithNoSignificantMovement = 0;
+        _distanceToWaypointAtStuckStart = float.MaxValue;
         Waypoints.Clear();
     }
 
@@ -235,6 +245,7 @@ public class FollowPath : IDisposable
         DestinationTolerance = destTolerance;
         _posPreviousFrame = null; // Reset to avoid stale position causing issues
         _millisecondsWithNoSignificantMovement = 0;
+        _distanceToWaypointAtStuckStart = float.MaxValue;
         Services.Log.Debug($"[FollowPath] Starting with {Waypoints.Count} waypoints, tolerance={destTolerance:F2}");
     }
 
