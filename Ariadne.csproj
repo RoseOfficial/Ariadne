@@ -1,0 +1,21 @@
+<Project Sdk="Dalamud.NET.Sdk/14.0.1">
+
+  <PropertyGroup>
+    <Version>0.0.1</Version>
+    <DalamudLibPath>$(AppData)\XIVLauncher\addon\Hooks\dev\</DalamudLibPath>
+    <DalamudDevPlugins>$(AppData)\XIVLauncher\devPlugins\Ariadne</DalamudDevPlugins>
+  </PropertyGroup>
+
+  <!-- Exclude DotRecast source from direct compilation - it's built as separate projects -->
+  <ItemGroup>
+    <Compile Remove="DotRecast\**\*.cs" />
+    <None Remove="DotRecast\**\*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="DotRecast\src\DotRecast.Core\DotRecast.Core.csproj" />
+    <ProjectReference Include="DotRecast\src\DotRecast.Detour\DotRecast.Detour.csproj" />
+    <ProjectReference Include="DotRecast\src\DotRecast.Recast\DotRecast.Recast.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,9 +1,0 @@
-<Project Sdk="Dalamud.NET.Sdk/14.0.1">
-
-  <PropertyGroup>
-    <Version>0.0.1</Version>
-    <DalamudLibPath>$(AppData)\XIVLauncher\addon\Hooks\dev\</DalamudLibPath>
-    <DalamudDevPlugins>$(AppData)\XIVLauncher\devPlugins\Ariadne</DalamudDevPlugins>
-  </PropertyGroup>
-
-</Project>

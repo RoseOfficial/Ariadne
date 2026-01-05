@@ -13,6 +13,21 @@
         "requested": "[1.2.39, )",
         "resolved": "1.2.39",
         "contentHash": "fcFN01tDTIQqDuTwr1jUQK/geofiwjG5DycJQOnC72i1SsLAk1ELe+apBOuZ11UMQG8YKFZG1FgvjZPbqHyatg=="
+      },
+      "dotrecast.core": {
+        "type": "Project"
+      },
+      "dotrecast.detour": {
+        "type": "Project",
+        "dependencies": {
+          "DotRecast.Core": "[1.0.0, )"
+        }
+      },
+      "dotrecast.recast": {
+        "type": "Project",
+        "dependencies": {
+          "DotRecast.Core": "[1.0.0, )"
+        }
       }
     }
   }
