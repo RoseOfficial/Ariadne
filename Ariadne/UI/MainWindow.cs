@@ -2,19 +2,21 @@ using Ariadne.IPC;
 using Ariadne.Navigation;
 using Dalamud.Bindings.ImGui;
 using System;
+using System.Collections.Generic;
 using System.Numerics;
+using System.Text;
 
 namespace Ariadne.UI;
 
-/// <summary>
-/// Main plugin window - draws directly with ImGui without Dalamud Window class
-/// to avoid Dalamud.Bindings.ImGui dependency issues.
-/// </summary>
 public class MainWindow : IDisposable
 {
     private readonly DungeonNavigator _navigator;
     private readonly VNavmeshIPC _navmesh;
     private bool _isOpen;
+
+    // Waypoint recorder
+    private readonly List<(Vector3 Position, string Name)> _recordedWaypoints = new();
+    private string _waypointName = "";
 
     public bool IsOpen
     {
@@ -37,7 +39,7 @@ public class MainWindow : IDisposable
         if (!IsOpen)
             return;
 
-        ImGui.SetNextWindowSize(new Vector2(350, 400), ImGuiCond.FirstUseEver);
+        ImGui.SetNextWindowSize(new Vector2(400, 500), ImGuiCond.FirstUseEver);
 
         if (ImGui.Begin("Ariadne", ref _isOpen))
         {
@@ -46,6 +48,8 @@ public class MainWindow : IDisposable
             DrawControlsSection();
             ImGui.Separator();
             DrawNavigationSection();
+            ImGui.Separator();
+            DrawRecorderSection();
             ImGui.Separator();
             DrawDebugSection();
         }
@@ -56,7 +60,6 @@ public class MainWindow : IDisposable
     {
         ImGui.Text("Status");
 
-        // vnavmesh status
         var navReady = _navmesh.IsReady;
         var navColor = navReady ? new Vector4(0, 1, 0, 1) : new Vector4(1, 0.5f, 0, 1);
         ImGui.TextColored(navColor, $"vnavmesh: {(navReady ? "Ready" : "Not Ready")}");
@@ -70,7 +73,6 @@ public class MainWindow : IDisposable
             }
         }
 
-        // Current territory
         var territory = Services.ClientState.TerritoryType;
         ImGui.Text($"Territory: {territory}");
     }
@@ -133,12 +135,81 @@ public class MainWindow : IDisposable
         }
     }
 
+    private void DrawRecorderSection()
+    {
+        if (!ImGui.CollapsingHeader("Waypoint Recorder", ImGuiTreeNodeFlags.DefaultOpen))
+            return;
+
+        var player = Services.ObjectTable.LocalPlayer;
+        if (player == null)
+        {
+            ImGui.TextColored(new Vector4(1, 0.5f, 0, 1), "Not logged in");
+            return;
+        }
+
+        var pos = player.Position;
+        ImGui.Text($"Current: {pos.X:F1}, {pos.Y:F1}, {pos.Z:F1}");
+
+        // Name input and record button
+        ImGui.SetNextItemWidth(200);
+        ImGui.InputText("Name", ref _waypointName, 64);
+        ImGui.SameLine();
+        if (ImGui.Button("Record"))
+        {
+            var name = string.IsNullOrWhiteSpace(_waypointName) ? $"Waypoint {_recordedWaypoints.Count + 1}" : _waypointName;
+            _recordedWaypoints.Add((pos, name));
+            _waypointName = "";
+            Services.ChatGui.Print($"[Ariadne] Recorded: {name}");
+        }
+
+        ImGui.Text($"Recorded: {_recordedWaypoints.Count} waypoints");
+
+        // List recorded waypoints
+        if (_recordedWaypoints.Count > 0)
+        {
+            if (ImGui.BeginChild("WaypointList", new Vector2(-1, 150), true))
+            {
+                for (int i = 0; i < _recordedWaypoints.Count; i++)
+                {
+                    var (wpPos, wpName) = _recordedWaypoints[i];
+                    ImGui.Text($"{i + 1}. {wpName}");
+                    ImGui.SameLine();
+                    ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1), $"({wpPos.X:F0}, {wpPos.Y:F0}, {wpPos.Z:F0})");
+                    ImGui.SameLine();
+                    if (ImGui.SmallButton($"X##{i}"))
+                    {
+                        _recordedWaypoints.RemoveAt(i);
+                        i--;
+                    }
+                }
+            }
+            ImGui.EndChild();
+
+            // Export buttons
+            if (ImGui.Button("Copy All"))
+            {
+                var sb = new StringBuilder();
+                foreach (var (wpPos, wpName) in _recordedWaypoints)
+                {
+                    sb.AppendLine($"new(new Vector3({wpPos.X:F2}f, {wpPos.Y:F2}f, {wpPos.Z:F2}f), WaypointType.Normal, 1.0f, \"{wpName}\"),");
+                }
+                ImGui.SetClipboardText(sb.ToString());
+                Services.ChatGui.Print($"[Ariadne] Copied {_recordedWaypoints.Count} waypoints to clipboard");
+            }
+
+            ImGui.SameLine();
+            if (ImGui.Button("Clear All"))
+            {
+                _recordedWaypoints.Clear();
+            }
+        }
+    }
+
     private void DrawDebugSection()
     {
         if (!ImGui.CollapsingHeader("Debug"))
             return;
 
-        // Player position
         var player = Services.ObjectTable.LocalPlayer;
         if (player != null)
         {
@@ -148,7 +219,6 @@ public class MainWindow : IDisposable
             ImGui.Text($"  Y: {pos.Y:F2}");
             ImGui.Text($"  Z: {pos.Z:F2}");
 
-            // Copy button for easy waypoint creation
             if (ImGui.Button("Copy Position"))
             {
                 var posStr = $"new Vector3({pos.X:F2}f, {pos.Y:F2}f, {pos.Z:F2}f)";
@@ -165,7 +235,6 @@ public class MainWindow : IDisposable
             }
         }
 
-        // vnavmesh details
         ImGui.Separator();
         ImGui.Text("vnavmesh:");
         ImGui.Text($"  IsReady: {_navmesh.IsReady}");
