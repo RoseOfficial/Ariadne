@@ -189,17 +189,8 @@ public class FollowPath : IDisposable
                     Services.Log.Debug($"[FollowPath] Waypoint {heightDiff:F1}m above, jumping to fly");
                     ExecuteJump();
                 }
-                else
-                {
-                    // Can't reach this waypoint without flying - skip to next waypoint if available
-                    Services.Log.Warning($"[FollowPath] Waypoint {heightDiff:F1}m above but not mounted, skipping");
-                    if (Waypoints.Count > 1)
-                    {
-                        Waypoints.RemoveAt(0);
-                        return;
-                    }
-                    // Last waypoint unreachable - continue anyway, may find alternate path
-                }
+                // Not mounted - trust the navmesh path is walkable via stairs/ramps
+                // Don't skip waypoints; the navmesh only generates paths on walkable surfaces
             }
 
             // Camera alignment
