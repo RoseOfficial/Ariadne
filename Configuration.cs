@@ -18,6 +18,11 @@ public class Configuration : IPluginConfiguration
     // Auto-navigation settings
     public bool AutoStartInDungeon { get; set; } = false;
 
+    // Navmesh settings
+    public bool UseNativeNavmesh { get; set; } = true;
+    public bool FallbackToVNavmesh { get; set; } = true;
+    public float PathfindingTolerance { get; set; } = 0.5f;
+
     public event Action? Modified;
 
     public void NotifyModified() => Modified?.Invoke();
@@ -38,6 +43,9 @@ public class Configuration : IPluginConfiguration
                     StuckTimeoutSeconds = loaded.StuckTimeoutSeconds;
                     StuckTolerance = loaded.StuckTolerance;
                     AutoStartInDungeon = loaded.AutoStartInDungeon;
+                    UseNativeNavmesh = loaded.UseNativeNavmesh;
+                    FallbackToVNavmesh = loaded.FallbackToVNavmesh;
+                    PathfindingTolerance = loaded.PathfindingTolerance;
                 }
             }
             catch (Exception ex)

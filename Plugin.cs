@@ -3,14 +3,18 @@ using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
 using Ariadne.IPC;
 using Ariadne.Navigation;
+using Ariadne.Navmesh;
 using Ariadne.UI;
 using System;
+using System.IO;
 
 namespace Ariadne;
 
 public sealed class Plugin : IDalamudPlugin
 {
     private readonly VNavmeshIPC _navmeshIPC;
+    private readonly NavmeshManager _navmeshManager;
+    private readonly NavigationService _navigationService;
     private readonly DungeonNavigator _navigator;
     private readonly MainWindow _mainWindow;
 
@@ -26,8 +30,16 @@ public sealed class Plugin : IDalamudPlugin
 
         // Initialize components
         _navmeshIPC = new VNavmeshIPC();
-        _navigator = new DungeonNavigator(_navmeshIPC);
-        _mainWindow = new MainWindow(_navigator, _navmeshIPC);
+
+        // Initialize native navmesh manager
+        var cacheDir = new DirectoryInfo(Path.Combine(dalamud.ConfigDirectory.FullName, "navmesh"));
+        _navmeshManager = new NavmeshManager(cacheDir);
+
+        // Create navigation service (bridges navmesh + movement)
+        _navigationService = new NavigationService(_navmeshManager, _navmeshIPC);
+
+        _navigator = new DungeonNavigator(_navigationService);
+        _mainWindow = new MainWindow(_navigator, _navigationService);
 
         // Setup UI drawing
         dalamud.UiBuilder.Draw += DrawUI;
@@ -58,6 +70,8 @@ public sealed class Plugin : IDalamudPlugin
 
         _mainWindow.Dispose();
         _navigator.Dispose();
+        _navigationService.Dispose();
+        _navmeshManager.Dispose();
         _navmeshIPC.Dispose();
 
         Services.Log.Info("Ariadne unloaded!");
@@ -65,6 +79,8 @@ public sealed class Plugin : IDalamudPlugin
 
     private void OnUpdate(IFramework framework)
     {
+        _navmeshManager.Update();
+        _navigationService.Update(framework);
         _navigator.Update(framework);
     }
 

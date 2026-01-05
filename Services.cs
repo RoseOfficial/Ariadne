@@ -18,6 +18,7 @@ public class Services
     [PluginService] public static IGameInteropProvider GameInterop { get; private set; } = null!;
     [PluginService] public static IGameConfig GameConfig { get; private set; } = null!;
     [PluginService] public static IChatGui ChatGui { get; private set; } = null!;
+    [PluginService] public static IGameGui GameGui { get; private set; } = null!;
     [PluginService] public static IDalamudPluginInterface PluginInterface { get; private set; } = null!;
     [PluginService] public static IDataManager DataManager { get; private set; } = null!;
 

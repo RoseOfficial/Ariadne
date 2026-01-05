@@ -1,8 +1,10 @@
 using Ariadne.Movement;
 using DotRecast.Core;
+using DotRecast.Core.Numerics;
 using DotRecast.Detour;
 using DotRecast.Recast;
 using System;
+using System.Collections.Generic;
 using System.Numerics;
 
 namespace Ariadne.Navmesh;
@@ -32,6 +34,15 @@ public class NavmeshBuilder
     private float _borderSizeWorld;
     private int _tileSizeXVoxels;
     private int _tileSizeZVoxels;
+
+    // Off-mesh connection data
+    private readonly List<OffMeshConnection> _offMeshConnections = [];
+    private float[]? _offMeshVerts;
+    private float[]? _offMeshRad;
+    private int[]? _offMeshDir;
+    private int[]? _offMeshAreas;
+    private int[]? _offMeshFlags;
+    private int _offMeshCount;
 
     public NavmeshBuilder(SceneDefinition sceneDefinition, NavmeshSettings? settings = null)
     {
@@ -65,6 +76,100 @@ public class NavmeshBuilder
         _borderSizeWorld = _borderSizeVoxels * Settings.CellSize;
         _tileSizeXVoxels = (int)MathF.Ceiling(navmeshParams.tileWidth / Settings.CellSize) + 2 * _borderSizeVoxels;
         _tileSizeZVoxels = (int)MathF.Ceiling(navmeshParams.tileHeight / Settings.CellSize) + 2 * _borderSizeVoxels;
+    }
+
+    /// <summary>
+    /// Add off-mesh connections from a detector.
+    /// Call this before building tiles.
+    /// </summary>
+    public void AddOffMeshConnections(OffMeshConnectionDetector detector)
+    {
+        foreach (var conn in detector.Connections)
+        {
+            _offMeshConnections.Add(conn);
+        }
+        PrepareOffMeshData();
+    }
+
+    /// <summary>
+    /// Add a single off-mesh connection.
+    /// Call this before building tiles.
+    /// </summary>
+    public void AddOffMeshConnection(OffMeshConnection connection)
+    {
+        _offMeshConnections.Add(connection);
+        PrepareOffMeshData();
+    }
+
+    /// <summary>
+    /// Add multiple off-mesh connections.
+    /// Call this before building tiles.
+    /// </summary>
+    public void AddOffMeshConnections(IEnumerable<OffMeshConnection> connections)
+    {
+        _offMeshConnections.AddRange(connections);
+        PrepareOffMeshData();
+    }
+
+    /// <summary>
+    /// Prepare off-mesh connection arrays for navmesh creation.
+    /// </summary>
+    private void PrepareOffMeshData()
+    {
+        if (_offMeshConnections.Count == 0)
+        {
+            _offMeshVerts = null;
+            _offMeshRad = null;
+            _offMeshDir = null;
+            _offMeshAreas = null;
+            _offMeshFlags = null;
+            _offMeshCount = 0;
+            return;
+        }
+
+        _offMeshCount = _offMeshConnections.Count;
+        _offMeshVerts = new float[_offMeshCount * 6]; // 2 vertices per connection, 3 floats each
+        _offMeshRad = new float[_offMeshCount];
+        _offMeshDir = new int[_offMeshCount];
+        _offMeshAreas = new int[_offMeshCount];
+        _offMeshFlags = new int[_offMeshCount];
+
+        for (int i = 0; i < _offMeshCount; i++)
+        {
+            var conn = _offMeshConnections[i];
+
+            // Convert to Recast coordinate system (swap Y/Z)
+            var startRecast = conn.Start.SystemToRecast();
+            var endRecast = conn.End.SystemToRecast();
+
+            // Start vertex
+            _offMeshVerts[i * 6 + 0] = startRecast.X;
+            _offMeshVerts[i * 6 + 1] = startRecast.Y;
+            _offMeshVerts[i * 6 + 2] = startRecast.Z;
+
+            // End vertex
+            _offMeshVerts[i * 6 + 3] = endRecast.X;
+            _offMeshVerts[i * 6 + 4] = endRecast.Y;
+            _offMeshVerts[i * 6 + 5] = endRecast.Z;
+
+            _offMeshRad[i] = conn.Radius;
+            _offMeshDir[i] = conn.Bidirectional ? DtNavMesh.DT_OFFMESH_CON_BIDIR : 0;
+            _offMeshAreas[i] = conn.AreaType;
+
+            // Set flags based on connection type
+            _offMeshFlags[i] = conn.ConnectionType switch
+            {
+                OffMeshConnectionType.Walk => (int)PolyFlags.Walk,
+                OffMeshConnectionType.JumpDown => (int)PolyFlags.Walk,
+                OffMeshConnectionType.JumpUp => (int)PolyFlags.Walk,
+                OffMeshConnectionType.Teleport => (int)PolyFlags.Walk,
+                OffMeshConnectionType.Swim => (int)PolyFlags.Swim,
+                OffMeshConnectionType.Flight => (int)PolyFlags.Fly,
+                _ => (int)PolyFlags.Walk
+            };
+        }
+
+        Services.Log.Info($"[NavmeshBuilder] Prepared {_offMeshCount} off-mesh connections");
     }
 
     /// <summary>
@@ -166,6 +271,10 @@ public class NavmeshBuilder
 
             buildBvTree = true,
         };
+
+        // Add off-mesh connections that intersect this tile
+        AddTileOffMeshConnections(navmeshConfig, pmesh.bmin, pmesh.bmax);
+
         var navmeshTileData = DtNavMeshBuilder.CreateNavMeshData(navmeshConfig);
 
         // 10. Add tile to navmesh
@@ -233,5 +342,79 @@ public class NavmeshBuilder
     {
         var offset = 3 * i;
         return new(vertices[offset], vertices[offset + 1], vertices[offset + 2]);
+    }
+
+    /// <summary>
+    /// Add off-mesh connections that intersect the tile bounds.
+    /// </summary>
+    private void AddTileOffMeshConnections(DtNavMeshCreateParams config, RcVec3f bmin, RcVec3f bmax)
+    {
+        if (_offMeshCount == 0 || _offMeshVerts == null)
+            return;
+
+        // Find connections that intersect this tile
+        var tileConnections = new List<int>();
+        for (int i = 0; i < _offMeshCount; i++)
+        {
+            // Get connection start and end in Recast coords
+            var startX = _offMeshVerts[i * 6 + 0];
+            var startY = _offMeshVerts[i * 6 + 1];
+            var startZ = _offMeshVerts[i * 6 + 2];
+            var endX = _offMeshVerts[i * 6 + 3];
+            var endY = _offMeshVerts[i * 6 + 4];
+            var endZ = _offMeshVerts[i * 6 + 5];
+
+            // Check if either endpoint is within tile bounds (with some tolerance)
+            var tolerance = _offMeshRad![i];
+            bool startInTile = IsPointInTile(startX, startZ, bmin, bmax, tolerance);
+            bool endInTile = IsPointInTile(endX, endZ, bmin, bmax, tolerance);
+
+            if (startInTile || endInTile)
+            {
+                tileConnections.Add(i);
+            }
+        }
+
+        if (tileConnections.Count == 0)
+            return;
+
+        // Build arrays for this tile's connections
+        var count = tileConnections.Count;
+        var verts = new float[count * 6];
+        var rad = new float[count];
+        var dir = new int[count];
+        var areas = new int[count];
+        var flags = new int[count];
+        var userIds = new int[count];
+
+        for (int j = 0; j < count; j++)
+        {
+            int i = tileConnections[j];
+
+            // Copy vertex data
+            Array.Copy(_offMeshVerts, i * 6, verts, j * 6, 6);
+            rad[j] = _offMeshRad![i];
+            dir[j] = _offMeshDir![i];
+            areas[j] = _offMeshAreas![i];
+            flags[j] = _offMeshFlags![i];
+            userIds[j] = i; // Use connection index as user ID
+        }
+
+        config.offMeshConVerts = verts;
+        config.offMeshConRad = rad;
+        config.offMeshConDir = dir;
+        config.offMeshConAreas = areas;
+        config.offMeshConFlags = flags;
+        config.offMeshConUserID = userIds;
+        config.offMeshConCount = count;
+    }
+
+    /// <summary>
+    /// Check if a point is within tile bounds (XZ plane only).
+    /// </summary>
+    private static bool IsPointInTile(float x, float z, RcVec3f bmin, RcVec3f bmax, float tolerance)
+    {
+        return x >= bmin.X - tolerance && x <= bmax.X + tolerance &&
+               z >= bmin.Z - tolerance && z <= bmax.Z + tolerance;
     }
 }

@@ -1,5 +1,4 @@
 using Ariadne.Data.Dungeons;
-using Ariadne.IPC;
 using Dalamud.Plugin.Services;
 using System;
 using System.Collections.Generic;
@@ -27,7 +26,7 @@ public enum NavigatorState
 /// </summary>
 public class DungeonNavigator : IDisposable
 {
-    private readonly VNavmeshIPC _navmesh;
+    private readonly NavigationService _navigation;
     private readonly Dictionary<uint, DungeonRoute> _routes = new();
 
     private DungeonRoute? _currentRoute;
@@ -45,9 +44,9 @@ public class DungeonNavigator : IDisposable
     public int TotalWaypoints => _currentRoute?.Waypoints.Count ?? 0;
     public string StatusMessage { get; private set; } = "Idle";
 
-    public DungeonNavigator(VNavmeshIPC navmesh)
+    public DungeonNavigator(NavigationService navigation)
     {
-        _navmesh = navmesh;
+        _navigation = navigation;
         RegisterRoutes();
     }
 
@@ -101,7 +100,7 @@ public class DungeonNavigator : IDisposable
     /// </summary>
     public void Stop()
     {
-        _navmesh.Stop();
+        _navigation.Stop();
         _currentRoute = null;
         _currentWaypointIndex = 0;
         State = NavigatorState.Idle;
@@ -145,13 +144,13 @@ public class DungeonNavigator : IDisposable
 
     private void UpdateWaitingForNavmesh()
     {
-        if (_navmesh.IsReady)
+        if (_navigation.IsReady)
         {
             MoveToNextWaypoint();
         }
         else
         {
-            var progress = _navmesh.BuildProgress;
+            var progress = _navigation.BuildProgress;
             StatusMessage = $"Building navmesh: {progress:P0}";
         }
     }
@@ -175,8 +174,8 @@ public class DungeonNavigator : IDisposable
             return;
         }
 
-        // Check if vnavmesh stopped moving (path complete or interrupted)
-        if (!_navmesh.IsPathRunning && !_navmesh.SimpleMoveInProgress)
+        // Check if navigation stopped (path complete or interrupted)
+        if (!_navigation.IsMoveInProgress)
         {
             // Check if we're at the destination
             if (waypoint.IsReached(playerPos))
@@ -284,8 +283,8 @@ public class DungeonNavigator : IDisposable
             return;
         }
 
-        // Use vnavmesh's PathfindAndMoveTo - returns true if move started successfully
-        var started = _navmesh.PathfindAndMoveTo(waypoint.Position, fly: false);
+        // Use NavigationService's PathfindAndMoveTo - returns true if move started successfully
+        var started = _navigation.PathfindAndMoveTo(waypoint.Position, fly: false);
 
         if (started)
         {
@@ -295,7 +294,7 @@ public class DungeonNavigator : IDisposable
         else
         {
             State = NavigatorState.Error;
-            StatusMessage = "Failed to start pathfinding - vnavmesh not ready?";
+            StatusMessage = "Failed to start pathfinding - navmesh not ready?";
         }
     }
 

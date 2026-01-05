@@ -28,21 +28,37 @@ public class NavmeshQuery
     }
 
     public DtNavMeshQuery MeshQuery;
-    private readonly IDtQueryFilter _filter = new DtQueryDefaultFilter();
+    private readonly AriadneQueryFilter _defaultFilter;
+    private readonly IDtQueryFilter _simpleFilter = new DtQueryDefaultFilter();
     private List<long> _lastPath = [];
+
+    /// <summary>
+    /// Default query filter used for pathfinding.
+    /// </summary>
+    public AriadneQueryFilter DefaultFilter => _defaultFilter;
 
     public NavmeshQuery(NavmeshData navmesh)
     {
         MeshQuery = new(navmesh.Mesh);
+        _defaultFilter = new AriadneQueryFilter();
     }
 
     /// <summary>
     /// Find a path between two points on the navmesh.
     /// </summary>
-    public List<Vector3> FindPath(Vector3 from, Vector3 to, bool useRaycast = true, bool useStringPulling = true, CancellationToken cancel = default, float range = 0)
+    /// <param name="from">Start position</param>
+    /// <param name="to">End position</param>
+    /// <param name="useRaycast">Use raycast optimization for shorter paths</param>
+    /// <param name="useStringPulling">Apply string pulling for smoother paths</param>
+    /// <param name="cancel">Cancellation token</param>
+    /// <param name="range">Tolerance range for destination</param>
+    /// <param name="filter">Optional custom query filter</param>
+    public List<Vector3> FindPath(Vector3 from, Vector3 to, bool useRaycast = true, bool useStringPulling = true, CancellationToken cancel = default, float range = 0, IDtQueryFilter? filter = null)
     {
-        var startRef = FindNearestPoly(from);
-        var endRef = FindNearestPoly(to);
+        filter ??= _defaultFilter;
+
+        var startRef = FindNearestPoly(from, filter: filter);
+        var endRef = FindNearestPoly(to, filter: filter);
         Services.Log.Debug($"[pathfind] poly {startRef:X} -> {endRef:X}");
 
         if (startRef == 0 || endRef == 0)
@@ -57,7 +73,7 @@ public class NavmeshQuery
             useRaycast ? DtFindPathOptions.DT_FINDPATH_ANY_ANGLE : 0,
             useRaycast ? 5 : 0);
 
-        MeshQuery.FindPath(startRef, endRef, from.SystemToRecast(), to.SystemToRecast(), _filter, ref _lastPath, opt);
+        MeshQuery.FindPath(startRef, endRef, from.SystemToRecast(), to.SystemToRecast(), filter, ref _lastPath, opt);
 
         if (_lastPath.Count == 0)
         {
@@ -92,19 +108,21 @@ public class NavmeshQuery
     /// <summary>
     /// Find the nearest polygon to a point.
     /// </summary>
-    public long FindNearestPoly(Vector3 p, float halfExtentXZ = 5, float halfExtentY = 5)
+    public long FindNearestPoly(Vector3 p, float halfExtentXZ = 5, float halfExtentY = 5, IDtQueryFilter? filter = null)
     {
-        MeshQuery.FindNearestPoly(p.SystemToRecast(), new(halfExtentXZ, halfExtentY, halfExtentXZ), _filter, out var nearestRef, out _, out _);
+        filter ??= _defaultFilter;
+        MeshQuery.FindNearestPoly(p.SystemToRecast(), new(halfExtentXZ, halfExtentY, halfExtentXZ), filter, out var nearestRef, out _, out _);
         return nearestRef;
     }
 
     /// <summary>
     /// Find all polygons intersecting a box.
     /// </summary>
-    public List<long> FindIntersectingPolys(Vector3 p, Vector3 halfExtent)
+    public List<long> FindIntersectingPolys(Vector3 p, Vector3 halfExtent, IDtQueryFilter? filter = null)
     {
+        filter ??= _defaultFilter;
         IntersectQuery query = new();
-        MeshQuery.QueryPolygons(p.SystemToRecast(), halfExtent.SystemToRecast(), _filter, query);
+        MeshQuery.QueryPolygons(p.SystemToRecast(), halfExtent.SystemToRecast(), filter, query);
         return query.Result;
     }
 

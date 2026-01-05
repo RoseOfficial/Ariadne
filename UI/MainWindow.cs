@@ -1,4 +1,3 @@
-using Ariadne.IPC;
 using Ariadne.Navigation;
 using Dalamud.Bindings.ImGui;
 using System;
@@ -11,7 +10,7 @@ namespace Ariadne.UI;
 public class MainWindow : IDisposable
 {
     private readonly DungeonNavigator _navigator;
-    private readonly VNavmeshIPC _navmesh;
+    private readonly NavigationService _navigation;
     private bool _isOpen;
 
     // Waypoint recorder
@@ -24,10 +23,10 @@ public class MainWindow : IDisposable
         set => _isOpen = value;
     }
 
-    public MainWindow(DungeonNavigator navigator, VNavmeshIPC navmesh)
+    public MainWindow(DungeonNavigator navigator, NavigationService navigation)
     {
         _navigator = navigator;
-        _navmesh = navmesh;
+        _navigation = navigation;
     }
 
     public void Dispose()
@@ -60,18 +59,25 @@ public class MainWindow : IDisposable
     {
         ImGui.Text("Status");
 
-        var navReady = _navmesh.IsReady;
-        var navColor = navReady ? new Vector4(0, 1, 0, 1) : new Vector4(1, 0.5f, 0, 1);
-        ImGui.TextColored(navColor, $"vnavmesh: {(navReady ? "Ready" : "Not Ready")}");
+        // Native navmesh status
+        var nativeReady = _navigation.IsNativeReady;
+        var nativeColor = nativeReady ? new Vector4(0, 1, 0, 1) : new Vector4(0.5f, 0.5f, 0.5f, 1);
+        ImGui.TextColored(nativeColor, $"Native: {(nativeReady ? "Ready" : "Not Ready")}");
 
-        if (!navReady)
+        // Show build progress if native navmesh is building
+        if (_navigation.IsNativeBuilding)
         {
-            var progress = _navmesh.BuildProgress;
-            if (progress > 0)
-            {
-                ImGui.ProgressBar(progress, new Vector2(-1, 0), $"Building: {progress:P0}");
-            }
+            var progress = _navigation.NativeBuildProgress;
+            ImGui.ProgressBar(progress, new Vector2(-1, 0), $"Building: {progress:P0}");
         }
+
+        // vnavmesh fallback status
+        var vnavReady = _navigation.IsVNavmeshReady;
+        var vnavColor = vnavReady ? new Vector4(0, 0.8f, 0.4f, 1) : new Vector4(0.5f, 0.5f, 0.5f, 1);
+        ImGui.TextColored(vnavColor, $"vnavmesh: {(vnavReady ? "Ready (Fallback)" : "Not Available")}");
+
+        // Active navigation source
+        ImGui.Text($"Active: {_navigation.ActiveSource}");
 
         var territory = Services.ClientState.TerritoryType;
         ImGui.Text($"Territory: {territory}");
@@ -236,10 +242,41 @@ public class MainWindow : IDisposable
         }
 
         ImGui.Separator();
-        ImGui.Text("vnavmesh:");
-        ImGui.Text($"  IsReady: {_navmesh.IsReady}");
-        ImGui.Text($"  IsPathRunning: {_navmesh.IsPathRunning}");
-        ImGui.Text($"  NumWaypoints: {_navmesh.NumWaypoints}");
-        ImGui.Text($"  PathfindInProgress: {_navmesh.PathfindInProgress}");
+        ImGui.Text("Navigation Service:");
+        ImGui.Text($"  IsReady: {_navigation.IsReady}");
+        ImGui.Text($"  IsNativeReady: {_navigation.IsNativeReady}");
+        ImGui.Text($"  IsVNavmeshReady: {_navigation.IsVNavmeshReady}");
+        ImGui.Text($"  IsMoving: {_navigation.IsMoving}");
+        ImGui.Text($"  IsPathfinding: {_navigation.IsPathfinding}");
+        ImGui.Text($"  NumWaypoints: {_navigation.NumWaypoints}");
+        ImGui.Text($"  ActiveSource: {_navigation.ActiveSource}");
+
+        // Current path info
+        if (_navigation.CurrentPath.Count > 0)
+        {
+            ImGui.Text($"  CurrentPath: {_navigation.CurrentPath.Count} waypoints");
+            if (_navigation.CurrentDestination.HasValue)
+            {
+                var dest = _navigation.CurrentDestination.Value;
+                ImGui.Text($"  Destination: ({dest.X:F1}, {dest.Y:F1}, {dest.Z:F1})");
+            }
+        }
+
+        // Settings toggles
+        ImGui.Separator();
+        ImGui.Text("Settings:");
+        var useNative = Services.Config.UseNativeNavmesh;
+        if (ImGui.Checkbox("Use Native Navmesh", ref useNative))
+        {
+            Services.Config.UseNativeNavmesh = useNative;
+            Services.Config.NotifyModified();
+        }
+
+        var fallback = Services.Config.FallbackToVNavmesh;
+        if (ImGui.Checkbox("Fallback to vnavmesh", ref fallback))
+        {
+            Services.Config.FallbackToVNavmesh = fallback;
+            Services.Config.NotifyModified();
+        }
     }
 }
