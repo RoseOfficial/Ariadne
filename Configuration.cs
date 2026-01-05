@@ -23,6 +23,12 @@ public class Configuration : IPluginConfiguration
     public bool FallbackToVNavmesh { get; set; } = true;
     public float PathfindingTolerance { get; set; } = 0.5f;
 
+    // Autonomous navigation settings
+    public float EnemyDetectionRange { get; set; } = 50f;
+    public float BossHpThreshold { get; set; } = 100000f;
+    public bool PauseForCutscenes { get; set; } = true;
+    public float ObjectiveReachedDistance { get; set; } = 3f;
+
     public event Action? Modified;
 
     public void NotifyModified() => Modified?.Invoke();
@@ -46,6 +52,10 @@ public class Configuration : IPluginConfiguration
                     UseNativeNavmesh = loaded.UseNativeNavmesh;
                     FallbackToVNavmesh = loaded.FallbackToVNavmesh;
                     PathfindingTolerance = loaded.PathfindingTolerance;
+                    EnemyDetectionRange = loaded.EnemyDetectionRange;
+                    BossHpThreshold = loaded.BossHpThreshold;
+                    PauseForCutscenes = loaded.PauseForCutscenes;
+                    ObjectiveReachedDistance = loaded.ObjectiveReachedDistance;
                 }
             }
             catch (Exception ex)

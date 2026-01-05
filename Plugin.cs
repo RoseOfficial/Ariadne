@@ -1,6 +1,7 @@
 using Dalamud.Game.Command;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
+using Ariadne.Autonomous;
 using Ariadne.IPC;
 using Ariadne.Navigation;
 using Ariadne.Navmesh;
@@ -15,7 +16,10 @@ public sealed class Plugin : IDalamudPlugin
     private readonly VNavmeshIPC _navmeshIPC;
     private readonly NavmeshManager _navmeshManager;
     private readonly NavigationService _navigationService;
-    private readonly DungeonNavigator _navigator;
+    private readonly CombatMonitor _combatMonitor;
+    private readonly ObjectiveDetector _objectiveDetector;
+    private readonly SpatialAnalyzer _spatialAnalyzer;
+    private readonly AutonomousNavigator _navigator;
     private readonly MainWindow _mainWindow;
 
     public Plugin(IDalamudPluginInterface dalamud)
@@ -38,7 +42,19 @@ public sealed class Plugin : IDalamudPlugin
         // Create navigation service (bridges navmesh + movement)
         _navigationService = new NavigationService(_navmeshManager, _navmeshIPC);
 
-        _navigator = new DungeonNavigator(_navigationService);
+        // Create autonomous navigation components
+        _combatMonitor = new CombatMonitor(Services.Config);
+        _objectiveDetector = new ObjectiveDetector(_combatMonitor, Services.Config);
+        _spatialAnalyzer = new SpatialAnalyzer(_navmeshManager, Services.Config);
+
+        _navigator = new AutonomousNavigator(
+            _navigationService,
+            _navmeshManager,
+            _combatMonitor,
+            _objectiveDetector,
+            _spatialAnalyzer,
+            Services.Config);
+
         _mainWindow = new MainWindow(_navigator, _navigationService);
 
         // Setup UI drawing
@@ -118,8 +134,11 @@ public sealed class Plugin : IDalamudPlugin
 
     private void PrintStatus()
     {
-        var navReady = _navmeshIPC.IsReady;
+        var nativeReady = _navigationService.IsNativeReady;
+        var vnavReady = _navmeshIPC.IsReady;
         var state = _navigator.State;
-        Services.ChatGui.Print($"[Ariadne] vnavmesh: {(navReady ? "Ready" : "Not Ready")} | State: {state}");
+        var status = _navigator.StatusMessage;
+        Services.ChatGui.Print($"[Ariadne] Native: {(nativeReady ? "Ready" : "Not Ready")} | vnavmesh: {(vnavReady ? "Ready" : "Not Ready")} | State: {state}");
+        Services.ChatGui.Print($"[Ariadne] {status}");
     }
 }

@@ -102,10 +102,20 @@ public unsafe class OverrideMovement : IDisposable
         _rmiFlyHook.Dispose();
     }
 
+    private bool _lastMovementAllowed = true;
+
     private void RMIWalkDetour(void* self, float* sumLeft, float* sumForward, float* sumTurnLeft, byte* haveBackwardOrStrafe, byte* a6, byte bAdditiveUnk)
     {
         _rmiWalkHook.Original(self, sumLeft, sumForward, sumTurnLeft, haveBackwardOrStrafe, a6, bAdditiveUnk);
         bool movementAllowed = bAdditiveUnk == 0 && _rmiWalkIsInputEnabled1(self) && _rmiWalkIsInputEnabled2(self);
+
+        // Log when movement permission changes
+        if (movementAllowed != _lastMovementAllowed)
+        {
+            Services.Log.Debug($"[OverrideMovement] Movement allowed changed: {_lastMovementAllowed} -> {movementAllowed} (additive={bAdditiveUnk}, input1={_rmiWalkIsInputEnabled1(self)}, input2={_rmiWalkIsInputEnabled2(self)})");
+            _lastMovementAllowed = movementAllowed;
+        }
+
         UserInput = *sumLeft != 0 || *sumForward != 0;
         if (movementAllowed && (IgnoreUserInput || *sumLeft == 0 && *sumForward == 0) && DirectionToDestination(false) is var relDir && relDir != null)
         {

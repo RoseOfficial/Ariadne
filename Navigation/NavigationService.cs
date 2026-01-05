@@ -234,7 +234,16 @@ public class NavigationService : IDisposable
         // Check if native path completed
         if (_currentPath.Count > 0 && _followPath.Waypoints.Count == 0)
         {
-            Services.Log.Info("[NavigationService] Path completed");
+            var player = Services.ObjectTable.LocalPlayer;
+            if (player != null && _currentDestination.HasValue)
+            {
+                var distToGoal = Vector3.Distance(player.Position, _currentDestination.Value);
+                Services.Log.Info($"[NavigationService] Path completed - distance to goal: {distToGoal:F1}m");
+            }
+            else
+            {
+                Services.Log.Info("[NavigationService] Path completed");
+            }
             _currentPath.Clear();
             _currentDestination = null;
             OnPathCompleted?.Invoke();
@@ -275,7 +284,19 @@ public class NavigationService : IDisposable
                         _currentPath = path;
                         _followPath.Move(path, fly, Services.Config.WaypointTolerance);
                         OnPathStarted?.Invoke(_currentPath);
-                        Services.Log.Info($"[NavigationService] Native path found: {path.Count} waypoints");
+
+                        // Log path details for debugging
+                        var totalDist = 0f;
+                        for (int i = 1; i < path.Count; i++)
+                            totalDist += Vector3.Distance(path[i - 1], path[i]);
+                        Services.Log.Info($"[NavigationService] Native path found: {path.Count} waypoints, {totalDist:F1}m total");
+
+                        if (path.Count > 0)
+                        {
+                            var firstWp = path[0];
+                            var lastWp = path[^1];
+                            Services.Log.Debug($"[NavigationService] Path: ({firstWp.X:F1},{firstWp.Y:F1},{firstWp.Z:F1}) -> ({lastWp.X:F1},{lastWp.Y:F1},{lastWp.Z:F1})");
+                        }
                     }
                     else
                     {

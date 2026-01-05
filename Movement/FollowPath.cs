@@ -49,6 +49,7 @@ public class FollowPath : IDisposable
 
     private Vector3? _posPreviousFrame;
     private int _millisecondsWithNoSignificantMovement = 0;
+    private bool _lastMovementEnabled;
 
     /// <summary>
     /// Fired when stuck detection triggers. Parameters: destination, allowVertical, tolerance.
@@ -75,6 +76,7 @@ public class FollowPath : IDisposable
             return;
 
         // Remove waypoints that have been passed
+        var removedCount = 0;
         while (Waypoints.Count > 0)
         {
             var a = Waypoints[0];
@@ -84,6 +86,7 @@ public class FollowPath : IDisposable
             // Check if we're close enough to final destination
             if (DestinationTolerance > 0 && (b - Waypoints[^1]).Length() <= DestinationTolerance)
             {
+                Services.Log.Debug($"[FollowPath] Reached destination (within {DestinationTolerance:F2}), clearing {Waypoints.Count} remaining waypoints");
                 Waypoints.Clear();
                 break;
             }
@@ -99,15 +102,27 @@ public class FollowPath : IDisposable
             }
 
             // Check if we've passed this waypoint
-            if (DistanceToLineSegment(aCheck, bCheck, cCheck) > Tolerance)
+            var dist = DistanceToLineSegment(aCheck, bCheck, cCheck);
+            if (dist > Tolerance)
                 break;
 
             Waypoints.RemoveAt(0);
+            removedCount++;
+        }
+
+        if (removedCount > 0)
+        {
+            Services.Log.Debug($"[FollowPath] Removed {removedCount} passed waypoints, {Waypoints.Count} remaining");
         }
 
         if (Waypoints.Count == 0)
         {
             // No waypoints - disable movement
+            if (_lastMovementEnabled)
+            {
+                Services.Log.Debug("[FollowPath] No waypoints remaining, disabling movement");
+                _lastMovementEnabled = false;
+            }
             _posPreviousFrame = player.Position;
             _movement.Enabled = _camera.Enabled = false;
             _camera.SpeedH = _camera.SpeedV = default;
@@ -131,6 +146,8 @@ public class FollowPath : IDisposable
                 if (_millisecondsWithNoSignificantMovement >= StuckTimeoutMs)
                 {
                     var destination = Waypoints[^1];
+                    var distToDest = Vector3.Distance(player.Position, destination);
+                    Services.Log.Warning($"[FollowPath] Stuck detected! No movement for {StuckTimeoutMs}ms, {distToDest:F1}m from destination");
                     Stop();
                     OnStuck?.Invoke(destination, !IgnoreDeltaY, DestinationTolerance);
                     return;
@@ -150,21 +167,38 @@ public class FollowPath : IDisposable
             OverrideAFK.ResetTimers();
 
             // Enable movement towards first waypoint
-            _movement.Enabled = MovementAllowed;
+            var movementEnabled = MovementAllowed;
+            if (movementEnabled != _lastMovementEnabled)
+            {
+                Services.Log.Debug($"[FollowPath] Movement enabled changed: {_lastMovementEnabled} -> {movementEnabled}");
+                _lastMovementEnabled = movementEnabled;
+            }
+            _movement.Enabled = movementEnabled;
             _movement.DesiredPosition = Waypoints[0];
 
             // Handle walk-to-fly transition
-            if (_movement.DesiredPosition.Y > player.Position.Y &&
+            // Only trigger for significant height differences (> 2m) that require flying
+            var heightDiff = _movement.DesiredPosition.Y - player.Position.Y;
+            if (heightDiff > 2f &&  // Significant height that can't be walked
                 !Services.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.InFlight] &&
                 !Services.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.Diving] &&
                 !IgnoreDeltaY)
             {
                 if (Services.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.Mounted])
+                {
+                    Services.Log.Debug($"[FollowPath] Waypoint {heightDiff:F1}m above, jumping to fly");
                     ExecuteJump();
+                }
                 else
                 {
-                    _movement.Enabled = false;
-                    return;
+                    // Can't reach this waypoint without flying - skip to next waypoint if available
+                    Services.Log.Warning($"[FollowPath] Waypoint {heightDiff:F1}m above but not mounted, skipping");
+                    if (Waypoints.Count > 1)
+                    {
+                        Waypoints.RemoveAt(0);
+                        return;
+                    }
+                    // Last waypoint unreachable - continue anyway, may find alternate path
                 }
             }
 
@@ -205,9 +239,12 @@ public class FollowPath : IDisposable
     /// </summary>
     public void Move(List<Vector3> waypoints, bool ignoreDeltaY, float destTolerance = 0)
     {
-        Waypoints = waypoints;
+        Waypoints = new List<Vector3>(waypoints);
         IgnoreDeltaY = ignoreDeltaY;
         DestinationTolerance = destTolerance;
+        _posPreviousFrame = null; // Reset to avoid stale position causing issues
+        _millisecondsWithNoSignificantMovement = 0;
+        Services.Log.Debug($"[FollowPath] Starting with {Waypoints.Count} waypoints, tolerance={destTolerance:F2}");
     }
 
     private unsafe void ExecuteJump()

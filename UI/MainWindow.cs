@@ -1,21 +1,16 @@
+using Ariadne.Autonomous;
 using Ariadne.Navigation;
 using Dalamud.Bindings.ImGui;
 using System;
-using System.Collections.Generic;
 using System.Numerics;
-using System.Text;
 
 namespace Ariadne.UI;
 
 public class MainWindow : IDisposable
 {
-    private readonly DungeonNavigator _navigator;
+    private readonly AutonomousNavigator _navigator;
     private readonly NavigationService _navigation;
     private bool _isOpen;
-
-    // Waypoint recorder
-    private readonly List<(Vector3 Position, string Name)> _recordedWaypoints = new();
-    private string _waypointName = "";
 
     public bool IsOpen
     {
@@ -23,7 +18,7 @@ public class MainWindow : IDisposable
         set => _isOpen = value;
     }
 
-    public MainWindow(DungeonNavigator navigator, NavigationService navigation)
+    public MainWindow(AutonomousNavigator navigator, NavigationService navigation)
     {
         _navigator = navigator;
         _navigation = navigation;
@@ -38,7 +33,7 @@ public class MainWindow : IDisposable
         if (!IsOpen)
             return;
 
-        ImGui.SetNextWindowSize(new Vector2(400, 500), ImGuiCond.FirstUseEver);
+        ImGui.SetNextWindowSize(new Vector2(400, 450), ImGuiCond.FirstUseEver);
 
         if (ImGui.Begin("Ariadne", ref _isOpen))
         {
@@ -47,8 +42,6 @@ public class MainWindow : IDisposable
             DrawControlsSection();
             ImGui.Separator();
             DrawNavigationSection();
-            ImGui.Separator();
-            DrawRecorderSection();
             ImGui.Separator();
             DrawDebugSection();
         }
@@ -88,7 +81,9 @@ public class MainWindow : IDisposable
         ImGui.Text("Controls");
 
         var state = _navigator.State;
-        var isRunning = state != NavigatorState.Idle && state != NavigatorState.Complete && state != NavigatorState.Error;
+        var isRunning = state != AutonomousState.Idle &&
+                        state != AutonomousState.Complete &&
+                        state != AutonomousState.Error;
 
         if (isRunning)
         {
@@ -108,106 +103,60 @@ public class MainWindow : IDisposable
 
     private void DrawNavigationSection()
     {
-        ImGui.Text("Navigation");
+        ImGui.Text("Autonomous Navigation");
 
         var state = _navigator.State;
         var stateColor = state switch
         {
-            NavigatorState.Idle => new Vector4(0.5f, 0.5f, 0.5f, 1),
-            NavigatorState.Moving => new Vector4(0, 1, 0, 1),
-            NavigatorState.Pathfinding => new Vector4(1, 1, 0, 1),
-            NavigatorState.WaitingForNavmesh => new Vector4(1, 1, 0, 1),
-            NavigatorState.WaitingAtWaypoint => new Vector4(0, 0.8f, 1, 1),
-            NavigatorState.Complete => new Vector4(0, 1, 0.5f, 1),
-            NavigatorState.Stuck => new Vector4(1, 0.5f, 0, 1),
-            NavigatorState.Error => new Vector4(1, 0, 0, 1),
+            AutonomousState.Idle => new Vector4(0.5f, 0.5f, 0.5f, 1),
+            AutonomousState.Initializing => new Vector4(1, 1, 0, 1),
+            AutonomousState.Exploring => new Vector4(0, 0.8f, 1, 1),
+            AutonomousState.Approaching => new Vector4(0, 1, 0, 1),
+            AutonomousState.InCombat => new Vector4(1, 0.5f, 0, 1),
+            AutonomousState.WaitingForProgression => new Vector4(1, 1, 0, 1),
+            AutonomousState.WatchingCutscene => new Vector4(0.8f, 0.8f, 0.5f, 1),
+            AutonomousState.Complete => new Vector4(0, 1, 0.5f, 1),
+            AutonomousState.Error => new Vector4(1, 0, 0, 1),
             _ => new Vector4(1, 1, 1, 1)
         };
 
         ImGui.TextColored(stateColor, $"State: {state}");
         ImGui.TextWrapped(_navigator.StatusMessage);
 
-        if (_navigator.CurrentRoute != null)
+        // Current objective
+        var objective = _navigator.CurrentObjective;
+        if (objective != null)
         {
-            ImGui.Text($"Route: {_navigator.CurrentRoute.Name}");
-            ImGui.Text($"Waypoint: {_navigator.CurrentWaypointIndex + 1} / {_navigator.TotalWaypoints}");
+            ImGui.Separator();
+            ImGui.Text("Current Objective:");
+            ImGui.TextColored(new Vector4(1, 0.8f, 0, 1), objective.Description);
 
-            var waypoint = _navigator.CurrentWaypoint;
-            if (waypoint != null)
+            var player = Services.ObjectTable.LocalPlayer;
+            if (player != null)
             {
-                ImGui.Text($"Target: {waypoint.Note ?? "unnamed"}");
-                ImGui.Text($"Position: {waypoint.Position.X:F1}, {waypoint.Position.Y:F1}, {waypoint.Position.Z:F1}");
+                var distance = Vector3.Distance(player.Position, objective.Position);
+                ImGui.Text($"Distance: {distance:F0}m");
             }
         }
-    }
 
-    private void DrawRecorderSection()
-    {
-        if (!ImGui.CollapsingHeader("Waypoint Recorder", ImGuiTreeNodeFlags.DefaultOpen))
-            return;
-
-        var player = Services.ObjectTable.LocalPlayer;
-        if (player == null)
+        // Enemy info
+        if (_navigator.EnemyCount > 0)
         {
-            ImGui.TextColored(new Vector4(1, 0.5f, 0, 1), "Not logged in");
-            return;
+            ImGui.Separator();
+            var combatColor = _navigator.IsInCombat ? new Vector4(1, 0.3f, 0.3f, 1) : new Vector4(1, 0.8f, 0, 1);
+            ImGui.TextColored(combatColor, $"Enemies: {_navigator.EnemyCount}");
+            if (_navigator.IsInCombat)
+            {
+                ImGui.SameLine();
+                ImGui.TextColored(new Vector4(1, 0.3f, 0.3f, 1), "(In Combat)");
+            }
         }
 
-        var pos = player.Position;
-        ImGui.Text($"Current: {pos.X:F1}, {pos.Y:F1}, {pos.Z:F1}");
-
-        // Name input and record button
-        ImGui.SetNextItemWidth(200);
-        ImGui.InputText("Name", ref _waypointName, 64);
-        ImGui.SameLine();
-        if (ImGui.Button("Record"))
+        // Exploration info
+        var unexplored = _navigator.UnexploredAreaCount;
+        if (unexplored > 0)
         {
-            var name = string.IsNullOrWhiteSpace(_waypointName) ? $"Waypoint {_recordedWaypoints.Count + 1}" : _waypointName;
-            _recordedWaypoints.Add((pos, name));
-            _waypointName = "";
-            Services.ChatGui.Print($"[Ariadne] Recorded: {name}");
-        }
-
-        ImGui.Text($"Recorded: {_recordedWaypoints.Count} waypoints");
-
-        // List recorded waypoints
-        if (_recordedWaypoints.Count > 0)
-        {
-            if (ImGui.BeginChild("WaypointList", new Vector2(-1, 150), true))
-            {
-                for (int i = 0; i < _recordedWaypoints.Count; i++)
-                {
-                    var (wpPos, wpName) = _recordedWaypoints[i];
-                    ImGui.Text($"{i + 1}. {wpName}");
-                    ImGui.SameLine();
-                    ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1), $"({wpPos.X:F0}, {wpPos.Y:F0}, {wpPos.Z:F0})");
-                    ImGui.SameLine();
-                    if (ImGui.SmallButton($"X##{i}"))
-                    {
-                        _recordedWaypoints.RemoveAt(i);
-                        i--;
-                    }
-                }
-            }
-            ImGui.EndChild();
-
-            // Export buttons
-            if (ImGui.Button("Copy All"))
-            {
-                var sb = new StringBuilder();
-                foreach (var (wpPos, wpName) in _recordedWaypoints)
-                {
-                    sb.AppendLine($"new(new Vector3({wpPos.X:F2}f, {wpPos.Y:F2}f, {wpPos.Z:F2}f), WaypointType.Normal, 1.0f, \"{wpName}\"),");
-                }
-                ImGui.SetClipboardText(sb.ToString());
-                Services.ChatGui.Print($"[Ariadne] Copied {_recordedWaypoints.Count} waypoints to clipboard");
-            }
-
-            ImGui.SameLine();
-            if (ImGui.Button("Clear All"))
-            {
-                _recordedWaypoints.Clear();
-            }
+            ImGui.Text($"Unexplored areas: {unexplored}");
         }
     }
 
@@ -230,14 +179,6 @@ public class MainWindow : IDisposable
                 var posStr = $"new Vector3({pos.X:F2}f, {pos.Y:F2}f, {pos.Z:F2}f)";
                 ImGui.SetClipboardText(posStr);
                 Services.ChatGui.Print($"[Ariadne] Copied: {posStr}");
-            }
-
-            ImGui.SameLine();
-            if (ImGui.Button("Copy as Waypoint"))
-            {
-                var wpStr = $"new(new Vector3({pos.X:F2}f, {pos.Y:F2}f, {pos.Z:F2}f), WaypointType.Normal, 1.0f, \"waypoint\"),";
-                ImGui.SetClipboardText(wpStr);
-                Services.ChatGui.Print("[Ariadne] Copied waypoint to clipboard");
             }
         }
 
@@ -276,6 +217,24 @@ public class MainWindow : IDisposable
         if (ImGui.Checkbox("Fallback to vnavmesh", ref fallback))
         {
             Services.Config.FallbackToVNavmesh = fallback;
+            Services.Config.NotifyModified();
+        }
+
+        // Autonomous settings
+        ImGui.Separator();
+        ImGui.Text("Autonomous Settings:");
+
+        var detectionRange = Services.Config.EnemyDetectionRange;
+        if (ImGui.SliderFloat("Enemy Detection Range", ref detectionRange, 10f, 100f))
+        {
+            Services.Config.EnemyDetectionRange = detectionRange;
+            Services.Config.NotifyModified();
+        }
+
+        var bossThreshold = Services.Config.BossHpThreshold;
+        if (ImGui.InputFloat("Boss HP Threshold", ref bossThreshold, 10000f, 50000f))
+        {
+            Services.Config.BossHpThreshold = bossThreshold;
             Services.Config.NotifyModified();
         }
     }
