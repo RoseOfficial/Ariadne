@@ -2,6 +2,7 @@ using Dalamud.Game.ClientState.Objects;
 using Dalamud.IoC;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
+using Lumina.Excel;
 
 namespace Ariadne;
 
@@ -21,4 +22,7 @@ public class Services
     [PluginService] public static IDataManager DataManager { get; private set; } = null!;
 
     public static Configuration Config { get; set; } = null!;
+
+    public static T? LuminaRow<T>(uint rowId) where T : struct, IExcelRow<T>
+        => DataManager.GetExcelSheet<T>()?.GetRowOrDefault(rowId);
 }
