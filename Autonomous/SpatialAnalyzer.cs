@@ -138,6 +138,41 @@ public class SpatialAnalyzer
     }
 
     /// <summary>
+    /// Mark a position as explored, updating area state and nearby polygons.
+    /// Call this when an exploration objective is completed.
+    /// </summary>
+    public void MarkPositionExplored(Vector3 position)
+    {
+        // Mark the containing area as cleared
+        var area = GetAreaContaining(position);
+        if (area != null && area.State != AreaState.Cleared)
+        {
+            area.State = AreaState.Cleared;
+            Services.Log.Debug($"[SpatialAnalyzer] Marked area {area.Id} as cleared");
+        }
+
+        // Mark nearby polygons as visited to prevent returning to same location
+        MarkNearbyPolygonsVisited(position, MinExplorationDistance * 2);
+    }
+
+    /// <summary>
+    /// Mark all polygons within a radius of a position as visited.
+    /// </summary>
+    private void MarkNearbyPolygonsVisited(Vector3 position, float radius)
+    {
+        foreach (var area in _areas)
+        {
+            if (Vector3.Distance(position, area.Center) <= radius + area.Radius)
+            {
+                foreach (var polyRef in area.PolygonRefs)
+                {
+                    _visitedPolygons.Add(polyRef);
+                }
+            }
+        }
+    }
+
+    /// <summary>
     /// Check if the player is near the exit.
     /// </summary>
     public bool IsNearExit(Vector3 playerPosition, float tolerance = 10f)

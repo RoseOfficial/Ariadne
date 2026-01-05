@@ -253,6 +253,12 @@ public class AutonomousNavigator : IDisposable
         // Check if current objective is complete
         if (_objectiveDetector.IsObjectiveReached(playerPos) || _objectiveDetector.IsObjectiveComplete())
         {
+            // Mark position as explored if this was an exploration objective
+            if (CurrentObjective?.Type == ObjectiveType.Explore)
+            {
+                _spatialAnalyzer.MarkPositionExplored(CurrentObjective.Position);
+            }
+
             Services.Log.Debug($"[Autonomous] Objective complete: {CurrentObjective?.Description}");
             DecideNextAction();
             return;

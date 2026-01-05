@@ -19,6 +19,11 @@ public class ObjectiveDetector
     /// </summary>
     private const float EnemyClusterRadius = 10f;
 
+    /// <summary>
+    /// Minimum distance for exploration objectives to avoid returning to nearby points.
+    /// </summary>
+    private const float MinExplorationDistance = 10f;
+
     public ObjectiveDetector(CombatMonitor combatMonitor, Configuration config)
     {
         _combatMonitor = combatMonitor;
@@ -140,6 +145,11 @@ public class ObjectiveDetector
         foreach (var point in frontier.Take(3)) // Limit to top 3 exploration points
         {
             var distance = Vector3.Distance(playerPosition, point);
+
+            // Skip points that are too close - prevents returning to same location
+            if (distance < MinExplorationDistance)
+                continue;
+
             _objectives.Add(DungeonObjective.Explore(point, distance));
         }
 
